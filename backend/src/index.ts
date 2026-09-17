@@ -4,8 +4,16 @@ import { Connection, Client } from '@temporalio/client'
 import { verifyEmailWorkflow } from './workflows'
 import { generateMessageFromTemplate } from './utils/messageGenerator'
 import { runTemporalWorker } from './worker'
+import {
+  errorHandler,
+  recordRequestError,
+  requestObservability,
+  setRequestOutcome,
+} from './middleware/requestObservability'
+import { logger, serializeError } from './utils/logger'
 const prisma = new PrismaClient()
 const app = express()
+app.use(requestObservability)
 app.use(express.json())
 
 app.use(function (req, res, next) {
@@ -101,7 +109,7 @@ app.delete('/leads', async (req: Request, res: Response) => {
 
     res.json({ deletedCount: result.count })
   } catch (error) {
-    console.error('Error deleting leads:', error)
+    recordRequestError(res, error)
     res.status(500).json({ error: 'Failed to delete leads' })
   }
 })
@@ -156,13 +164,27 @@ app.post('/leads/generate-messages', async (req: Request, res: Response) => {
       }
     }
 
+    if (errors.length > 0) {
+      setRequestOutcome(res, {
+        level: 'error',
+        msg: 'leads_message_generation_partial_failure',
+        fields: {
+          operation: 'generateMessages',
+          requestedCount: leadIds.length,
+          generatedCount,
+          failedCount: errors.length,
+          failedLeadIds: errors.map((entry) => entry.leadId),
+        },
+      })
+    }
+
     res.json({
       success: true,
       generatedCount,
       errors,
     })
   } catch (error) {
-    console.error('Error generating messages:', error)
+    recordRequestError(res, error)
     res.status(500).json({ error: 'Failed to generate messages' })
   }
 })
@@ -240,6 +262,22 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
       }
     }
 
+    if (errors.length > 0) {
+      setRequestOutcome(res, {
+        level: 'error',
+        msg: 'leads_bulk_import_partial_failure',
+        fields: {
+          operation: 'bulkImport',
+          requestedCount: leads.length,
+          validCount: validLeads.length,
+          importedCount,
+          duplicatesSkipped: validLeads.length - uniqueLeads.length,
+          invalidLeads: leads.length - validLeads.length,
+          failedCount: errors.length,
+        },
+      })
+    }
+
     res.json({
       success: true,
       importedCount,
@@ -248,7 +286,7 @@ app.post('/leads/bulk', async (req: Request, res: Response) => {
       errors,
     })
   } catch (error) {
-    console.error('Error importing leads:', error)
+    recordRequestError(res, error)
     res.status(500).json({ error: 'Failed to import leads' })
   }
 })
@@ -306,18 +344,36 @@ app.post('/leads/verify-emails', async (req: Request, res: Response) => {
 
     await connection.close()
 
+    if (errors.length > 0) {
+      setRequestOutcome(res, {
+        level: 'error',
+        msg: 'leads_email_verification_partial_failure',
+        fields: {
+          operation: 'verifyEmails',
+          requestedCount: leadIds.length,
+          verifiedCount,
+          failedCount: errors.length,
+          failedLeadIds: errors.map((entry) => entry.leadId),
+        },
+      })
+    }
+
     res.json({ success: true, verifiedCount, results, errors })
   } catch (error) {
-    console.error('Error verifying emails:', error)
+    recordRequestError(res, error)
     res.status(500).json({ error: 'Failed to verify emails' })
   }
 })
 
-app.listen(4000, () => {
-  console.log('Express server is running on port 4000')
+const PORT = 4000
+
+app.use(errorHandler)
+
+app.listen(PORT, () => {
+  logger.info('http_server_started', { port: PORT })
 })
 
 runTemporalWorker().catch((err) => {
-  console.error(err)
+  logger.error('temporal_worker_fatal', serializeError(err))
   process.exit(1)
 })
