@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
 import { api } from '../api'
-import { CsvLead, parseCsv } from '../utils/csvParser'
+import { CsvLead, decodeCsv, parseCsv } from '../utils/csvParser'
 
 interface CsvImportModalProps {
   isOpen: boolean
@@ -52,8 +52,7 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
-        const content = e.target?.result as string
-        const parsed = parseCsv(content)
+        const parsed = parseCsv(decodeCsv(e.target?.result as ArrayBuffer))
         setCsvData(parsed)
         setIsProcessing(false)
       } catch (error) {
@@ -66,7 +65,7 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
       toast.error('Error reading file')
       setIsProcessing(false)
     }
-    reader.readAsText(file)
+    reader.readAsArrayBuffer(file)
   }
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -100,6 +99,9 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
         jobTitle: lead.jobTitle || undefined,
         countryCode: lead.countryCode || undefined,
         companyName: lead.companyName || undefined,
+        phone: lead.phone || undefined,
+        yearsAtCompany: lead.yearsAtCompany,
+        linkedinUrl: lead.linkedinUrl || undefined,
       }))
 
       return api.leads.bulkImport({ leads: leadsToImport })
@@ -238,7 +240,7 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
                   </p>
                   <p className="text-sm text-gray-500">
                     CSV must include: firstName, lastName, email (required). Optional: jobTitle, countryCode,
-                    companyName
+                    companyName, phone, yearsAtCompany, linkedinUrl
                   </p>
                 </div>
               )}
@@ -285,6 +287,18 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
                         Company
                       </th>
                       <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Country
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Phone
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        Years
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                        LinkedIn
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
                         Errors
                       </th>
                     </tr>
@@ -309,6 +323,10 @@ export const CsvImportModal: FC<CsvImportModalProps> = ({ isOpen, onClose }) => 
                         </td>
                         <td className="px-3 py-2 text-sm text-gray-900">{lead.email || '-'}</td>
                         <td className="px-3 py-2 text-sm text-gray-900">{lead.companyName || '-'}</td>
+                        <td className="px-3 py-2 text-sm text-gray-900">{lead.countryCode || '-'}</td>
+                        <td className="px-3 py-2 text-sm text-gray-900">{lead.phone || '-'}</td>
+                        <td className="px-3 py-2 text-sm text-gray-900">{lead.yearsAtCompany ?? '-'}</td>
+                        <td className="px-3 py-2 text-sm text-gray-900">{lead.linkedinUrl || '-'}</td>
                         <td className="px-3 py-2 text-sm text-red-600">{lead.errors.join(', ') || '-'}</td>
                       </tr>
                     ))}
