@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseCsv, isValidEmail } from './csvParser'
+import { parseCsv, isValidEmail, decodeCsv } from './csvParser'
 
 describe('isValidEmail', () => {
   it('should return true for valid email addresses', () => {
@@ -222,5 +222,70 @@ Jane,Johnson,jane@example.com`
     expect(result[0].lastName).toBe('Doe')
     expect(result[0].email).toBe('john@example.com')
     expect(result[0].isValid).toBe(true)
+  })
+})
+
+describe('parseCsv country codes', () => {
+  const parseOne = (country: string) =>
+    parseCsv(`firstName,lastName,email,countryCode\nJohn,Doe,john@example.com,${country}`)[0]
+
+  it('accepts valid ISO 3166-1 alpha-2 codes', () => {
+    for (const code of ['US', 'ES', 'KI', 'TV', 'KP']) {
+      const lead = parseOne(code)
+      expect(lead.countryCode).toBe(code)
+      expect(lead.isValid).toBe(true)
+    }
+  })
+
+  it('normalises case and whitespace', () => {
+    const lead = parseOne(' us ')
+    expect(lead.countryCode).toBe('US')
+    expect(lead.isValid).toBe(true)
+  })
+
+  it('flags invalid codes on the row and marks it invalid', () => {
+    for (const code of ['XXX', '12', 'ZZ', 'U']) {
+      const lead = parseOne(code)
+      expect(lead.isValid).toBe(false)
+      expect(lead.errors).toContain(`Invalid country code "${code}"`)
+    }
+  })
+
+  it('does not keep an invalid code on the lead', () => {
+    expect(parseOne('XXX').countryCode).toBeUndefined()
+  })
+
+  it('treats a blank country as missing, not invalid', () => {
+    const lead = parseOne('')
+    expect(lead.countryCode).toBeUndefined()
+    expect(lead.isValid).toBe(true)
+  })
+})
+
+describe('parseCsv BOM handling', () => {
+  it('strips a UTF-8 BOM so the first header is still recognised', () => {
+    const csv = '\uFEFFfirstName,lastName,email\nJohn,Doe,john@example.com'
+    const [lead] = parseCsv(csv)
+    expect(lead.firstName).toBe('John')
+    expect(lead.isValid).toBe(true)
+  })
+})
+
+describe('decodeCsv', () => {
+  const bytes = (...b: number[]) => new Uint8Array(b).buffer
+
+  it('decodes UTF-8', () => {
+    const buf = new TextEncoder().encode('Iñaki,ES').buffer
+    expect(decodeCsv(buf)).toBe('Iñaki,ES')
+  })
+
+  it('strips a UTF-8 BOM', () => {
+    const buf = new TextEncoder().encode('\uFEFFfirstName').buffer
+    expect(decodeCsv(buf)).toBe('firstName')
+  })
+
+  it('falls back to Windows-1252 when the bytes are not valid UTF-8', () => {
+    // "Iñaki" in Windows-1252: ñ = 0xF1
+    expect(decodeCsv(bytes(0x49, 0xf1, 0x61, 0x6b, 0x69))).toBe('Iñaki')
   })
 })
