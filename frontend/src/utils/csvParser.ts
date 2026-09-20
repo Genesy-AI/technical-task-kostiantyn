@@ -1,4 +1,5 @@
 import Papa from 'papaparse'
+import { isValidCountryCode } from './countryCodes'
 
 export interface CsvLead {
   firstName: string
@@ -15,6 +16,16 @@ export interface CsvLead {
 export const isValidEmail = (email: string): boolean => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   return emailRegex.test(email)
+}
+
+// Decodes CSV file bytes as UTF-8 (BOM stripped), falling back to Windows-1252
+// for legacy Excel exports so accented characters are not replaced with U+FFFD.
+export const decodeCsv = (buffer: ArrayBuffer): string => {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+  } catch {
+    return new TextDecoder('windows-1252').decode(buffer)
+  }
 }
 
 export const parseCsv = (content: string): CsvLead[] => {
@@ -68,7 +79,7 @@ export const parseCsv = (content: string): CsvLead[] => {
           lead.jobTitle = trimmedValue || undefined
           break
         case 'countrycode':
-          lead.countryCode = trimmedValue || undefined
+          lead.countryCode = trimmedValue.toUpperCase() || undefined
           break
         case 'companyname':
           lead.companyName = trimmedValue || undefined
@@ -87,6 +98,10 @@ export const parseCsv = (content: string): CsvLead[] => {
       errors.push('Email is required')
     } else if (!isValidEmail(lead.email)) {
       errors.push('Invalid email format')
+    }
+    if (lead.countryCode && !isValidCountryCode(lead.countryCode)) {
+      errors.push(`Invalid country code "${lead.countryCode}"`)
+      lead.countryCode = undefined
     }
 
     data.push({
